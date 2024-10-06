@@ -1,0 +1,287 @@
+#checkov:skip=CKV_SECRET_6: all dev setup
+services:
+  oracle:
+    image: docker.io/gvenzl/oracle-free:23.5-slim-faststart@sha256:1af6ddc85a3efafdc47e1f235694af2d8ea566556ff968f722d9a1f95f07507a
+    cap_drop:
+      - ALL
+    privileged: false
+    ipc: none
+    security_opt:
+      - "no-new-privileges:true"
+    environment:
+      # kics-scan ignore-line
+      ORACLE_PASSWORD: "devPassword" # gitleaks:allow
+    ports:
+      - "127.0.0.1:1521:1521"
+    volumes:
+      - $PWD/onkostar:/docker-entrypoint-initdb.d/setup
+
+  kafka:
+    image: docker.io/apache/kafka-native:3.8.0@sha256:8c671522f7f84d0fd20b1482a1d41fa4544eff02b4027673116d4fa74a508106
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    privileged: false
+    ipc: none
+    security_opt:
+      - "no-new-privileges:true"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_MESSAGE_MAX_BYTES: "31457280"
+    ports:
+      - 127.0.0.1:9094:9094
+
+  kafka-connect:
+    image: ghcr.io/miracum/util-images/cricketeerone-kafka-connect:v1.6.0@sha256:5d4c79d5b9d64562d8906aec14c66ed5f48ddb0f9e7f12949547ab89b69e3f0f
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    privileged: false
+    ipc: none
+    security_opt:
+      - "no-new-privileges:true"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka:9092
+      CONNECT_GROUP_ID: kafka-connect-group
+      CONNECT_KEY_CONVERTER: "org.apache.kafka.connect.storage.StringConverter"
+      CONNECT_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_REST_ADVERTISED_HOST_NAME: "kafka-connect"
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_CONFIG_STORAGE_TOPIC: __kafka-connect-config
+      CONNECT_OFFSET_STORAGE_TOPIC: __kafka-connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: __kafka-connect-status
+      CONNECT_PLUGIN_PATH: /app/libs
+    ports:
+      - "127.0.0.1:8083:8083"
+    depends_on:
+      - kafka
+
+  obds-to-fhir:
+    image: ghcr.io/bzkf/obds-to-fhir:v2.2.1@sha256:f0c961edf42928d711efd176411316fac46fe5cfd20cc1ee752d2e8d9a304edf
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    privileged: false
+    ipc: none
+    security_opt:
+      - "no-new-privileges:true"
+    user: "65532:65532"
+    environment:
+      SECURITY_PROTOCOL: PLAINTEXT
+      BOOTSTRAP_SERVERS: kafka:9092
+      FHIR_OUTPUT_TOPIC_PARTITION_COUNT: "1"
+      SPRING_CLOUD_STREAM_KAFKA_BINDER_MINPARTITIONCOUNT: "1"
+      SPRING_CLOUD_STREAM_KAFKA_BINDER_AUTOADDPARTITIONS: "true"
+      NUM_STREAM_THREADS: "1"
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+      ACTIVE_PROFILE: "patient"
+    depends_on:
+      - kafka
+
+  akhq:
+    image: docker.io/tchiotludo/akhq:0.25.1@sha256:cfaef8f419c4e4b78c583597d6428b63166e90eeb194af890264d68051a22180
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    privileged: false
+    ipc: none
+    security_opt:
+      - "no-new-privileges:true"
+    healthcheck:
+      interval: 10s
+    environment:
+      AKHQ_CONFIGURATION: |
+        akhq:
+          connections:
+            kafka:
+              properties:
+                bootstrap.servers: "kafka:9092"
+              connect:
+                - name: "kafka-connect"
+                  url: "http://kafka-connect:8083"
+    ports:
+      - "127.0.0.1:8084:8080"
+    depends_on:
+      - kafka
+
+  minio:
+    image: docker.io/bitnami/minio:2024.7.10@sha256:9a1a49c6c460733f6b4070dbf2f189c5523666b7be22993fe20c7fb4b51b19d6
+    ipc: none
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    privileged: false
+    environment:
+      MINIO_UPDATE: "off"
+      MINIO_CALLHOME_ENABLE: "off"
+      MINIO_ROOT_USER: "${AWS_ACCESS_KEY_ID}"
+      # kics-scan ignore-line
+      MINIO_ROOT_PASSWORD: "${AWS_SECRET_ACCESS_KEY}" # gitleaks:allow
+      MINIO_DEFAULT_BUCKETS: "fhir"
+      MINIO_SCHEME: "http"
+    volumes:
+      - minio-data:/bitnami/minio/data:rw
+    ports:
+      - "127.0.0.1:9001:9001"
+      - "127.0.0.1:9000:9000"
+
+  wait-for-minio:
+    image: docker.io/curlimages/curl:8.8.0@sha256:73e4d532ea62d7505c5865b517d3704966ffe916609bedc22af6833dc9969bcd
+    ipc: none
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    privileged: false
+    restart: "no"
+    environment:
+      MINIO_ENDPOINT_URL: http://minio:9000
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ "$(curl -s -o /dev/null -L -w "%{http_code}" "$$MINIO_ENDPOINT_URL/minio/health/live")" == "200" ]; do
+            echo "$(date): Waiting for minio server @ $$MINIO_ENDPOINT_URL to be up";
+            sleep 5;
+        done;
+    depends_on:
+      minio:
+        condition: service_started
+
+  pathling:
+    image: docker.io/aehrc/pathling:7.0.1@sha256:70177a4eb7a20a5edba7a4957ac6cd245c29e3c306e98c5de59fe2974c1f71b8
+    ipc: none
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    privileged: false
+    environment:
+      JAVA_TOOL_OPTIONS: |
+        -Xmx24g
+        -Xss64m
+        -XX:G1HeapRegionSize=32M
+        -XX:+ExplicitGCInvokesConcurrent
+        -XX:+ExitOnOutOfMemoryError
+        -XX:+HeapDumpOnOutOfMemoryError
+        -Duser.timezone=UTC
+        --add-exports=java.base/sun.nio.ch=ALL-UNNAMED
+        --add-opens=java.base/java.net=ALL-UNNAMED
+        --add-opens=java.base/java.nio=ALL-UNNAMED
+        --add-opens=java.base/java.util=ALL-UNNAMED
+        --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+      pathling.storage.warehouseUrl: s3a://fhir
+      pathling.storage.cacheDatasets: "false"
+      pathling.query.cacheResults: "false"
+      pathling.import.allowableSources: file:///tmp/import/
+      pathling.terminology.enabled: "false"
+      pathling.terminology.serverUrl: http://localhost:8080/i-dont-exist
+      fs.s3a.endpoint: "http://minio:9000"
+      fs.s3a.access.key: "${AWS_ACCESS_KEY_ID}"
+      fs.s3a.secret.key: "${AWS_SECRET_ACCESS_KEY}"
+      fs.s3a.impl: "org.apache.hadoop.fs.s3a.S3AFileSystem"
+      fs.s3a.path.style.access: "true"
+      spark.sql.parquet.compression.codec: "zstd"
+      spark.io.compression.codec: "zstd"
+      parquet.compression.codec.zstd.level: "9"
+      spark.serializer: "org.apache.spark.serializer.KryoSerializer"
+      spark.master: "local[*]"
+      spark.driver.memory: 16g
+    ports:
+      - "127.0.0.1:8082:8080"
+      - "127.0.0.1:4040:4040"
+    depends_on:
+      wait-for-minio:
+        condition: service_completed_successfully
+
+  hive-metastore-db:
+    image: docker.io/bitnami/postgresql:16.3.0@sha256:b0248a5e2bf4fda5208183d4a6203287828666823a7a57431cfa4d31688bae97
+    ipc: private
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    privileged: false
+    restart: unless-stopped
+    environment:
+      POSTGRESQL_USERNAME: "${POSTGRESQL_USERNAME}"
+      POSTGRESQL_PASSWORD: "${POSTGRESQL_PASSWORD}"
+      POSTGRESQL_DATABASE: metastore
+
+  hive-metastore:
+    image: ghcr.io/miracum/util-images/hive-metastore:v1.2.0@sha256:d8f99a4a16ede640f184dca9bd84bef84f84b26f41b10eb5c62a57bb796268c8
+    ipc: none
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    privileged: false
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: postgres
+      SERVICE_OPTS: |
+        -Djavax.jdo.option.ConnectionUserName=${POSTGRESQL_USERNAME}
+        -Djavax.jdo.option.ConnectionPassword=${POSTGRESQL_PASSWORD}
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+      AWS_DEFAULT_REGION: "eu-central-1"
+    volumes:
+      - $PWD/config/hive-site.xml:/opt/hive/conf/hive-site.xml:ro
+    depends_on:
+      hive-metastore-db:
+        condition: service_started
+
+  fhir-to-pathling-server:
+    image: ghcr.io/miracum/kafka-fhir-to-server:v2.1.5@sha256:c67c90d20fe7adc6e3363a4adbd652af929827bb1c73c2cb4913413f04e1b7fd
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    privileged: false
+    ipc: none
+    security_opt:
+      - "no-new-privileges:true"
+    environment:
+      SECURITY_PROTOCOL: PLAINTEXT
+      BOOTSTRAP_SERVERS: kafka:9092
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+      FHIR_URL: http://pathling:8080/fhir
+      TOPIC: "fhir.obds.Patient,fhir.obds.Condition,fhir.obds.Observation"
+
+  trino:
+    # this custom image contains the `storage` plugin pre-installed.
+    image: ghcr.io/miracum/util-images/trino:v0.1.3@sha256:ecae8ef137895e793bd1c26fc20ac80815723eb0d1f7b4f8a90bac8677fbc44f
+    ipc: none
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    privileged: false
+    restart: unless-stopped
+    environment:
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - $PWD/config/trino/etc:/usr/lib/trino/etc:ro
+      - $PWD/config/trino/catalog:/etc/trino/catalog:ro
+    depends_on:
+      - hive-metastore
+      - minio
+
+volumes:
+  minio-data: {}

@@ -1,0 +1,21 @@
+services:
+  obds-fhir-to-opal:
+    image: ghcr.io/bzkf/onco-analytics-on-fhir/obds-fhir-to-opal:v2.3.0 # x-release-please-version
+    restart: no
+    cap_drop:
+      - ALL
+    privileged: false
+    ipc: private
+    security_opt:
+      - "no-new-privileges:true"
+    user: "1001:1001"
+    environment:
+      OUTPUT_FOLDER: "/home/spark/opal-output"
+      KAFKA_BOOTSTRAP_SERVER: "kafka:9092"
+      KAFKA_PATIENT_TOPIC: "fhir.obds.Patient"
+      KAFKA_CONDITION_TOPIC: "fhir.obds.Condition"
+      KAFKA_OBSERVATION_TOPIC: "fhir.obds.Observation"
+      KAFKA_PROCEDURE_TOPIC: "fhir.obds.Procedure"
+      KAFKA_MEDICATIONSTATEMENT_TOPIC: "fhir.obds.MedicationStatement"
+    volumes:
+      - ${PWD}/csv-output:/home/spark/opal-output
