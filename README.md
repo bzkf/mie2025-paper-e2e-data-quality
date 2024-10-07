@@ -29,13 +29,7 @@ and also import them to the Pathling server via the `fhir-to-pathling-server` se
 You can check the import status into Pathling by running:
 
 ```sh
-curl http://localhost:8082/fhir/Patient?_summary=count
-```
-
-and
-
-```sh
-curl http://localhost:8082/fhir/Condition?_summary=count
+curl http://localhost:8082/fhir/{Patient,Condition}?_summary=count
 ```
 
 which should return a total of `3` and `4` respectively.
@@ -46,14 +40,20 @@ To register the Pathling-encoded Delta Tables for querying by Trino, run:
 docker compose -f compose.yaml -f compose.warehousekeeper.yaml up warehousekeeper
 ```
 
-after the resources are imported. Next, to create the CSV to compare against, run:
+after the resources are imported.
+
+Next, to create the CSV to compare against, run:
 
 ```sh
 sudo chown -R 1001:1001 ./csv-output/
 docker compose -f compose.obds-fhir-to-opal.yaml -f compose.yaml up obds-fhir-to-opal
 ```
 
-TODO: copy CSV to minio/create bucket first.
+Once that completed, upload the CSV to MinIO:
+
+```sh
+docker compose -f compose.yaml -f compose.upload-csv.yaml up upload-csv
+```
 
 Finally, run:
 

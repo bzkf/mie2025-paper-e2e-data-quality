@@ -153,7 +153,7 @@ csv_data AS (
         CAST(date_diagnosis_year AS INTEGER) AS "Year of Diagnosis",
         COUNT(*) AS "CSV Diagnosis Count (3)"
     FROM
-        storage.csv."s3a://bzkf-obds-dq/df.csv"
+        storage.csv."s3a://dq-test/df.csv"
     WHERE
         CAST(date_diagnosis_year AS INTEGER) BETWEEN 2018
         AND 2023

@@ -163,7 +163,7 @@ WITH
             substr (icd10_code, 1, 3) AS icd10_code,
             COUNT(*) AS "CSV Diagnosis Count (3)"
         FROM
-            storage.csv."s3a://bzkf-obds-dq/df.csv"
+            storage.csv."s3a://dq-test/df.csv"
         WHERE
             CAST(date_diagnosis_year AS INTEGER) = 2022
         GROUP BY

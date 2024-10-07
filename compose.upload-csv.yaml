@@ -1,0 +1,26 @@
+services:
+  upload-csv:
+    image: docker.io/bitnami/minio-client:2024.7.8@sha256:545263a26bd984c0ac7c82cd2f2d3debbe6548e4cdcbbdffe61050e5bdc04244
+    ipc: none
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    privileged: false
+    environment:
+      MINIO_UPDATE: "off"
+      MINIO_CALLHOME_ENABLE: "off"
+      MINIO_SERVER_ACCESS_KEY: "${AWS_ACCESS_KEY_ID}"
+      # kics-scan ignore-line
+      MINIO_SERVER_SECRET_KEY: "${AWS_SECRET_ACCESS_KEY}" # gitleaks:allow
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cat /tmp/data/df.csv
+        mc alias set minio http://minio:9000 $${MINIO_SERVER_ACCESS_KEY} $${MINIO_SERVER_SECRET_KEY}
+        mc mb minio/dq-test
+        mc cp /tmp/data/df.csv minio/dq-test
+    volumes:
+      - $PWD/csv-output:/tmp/data/:ro
+    depends_on:
+      - minio

@@ -263,7 +263,7 @@ services:
 
   trino:
     # this custom image contains the `storage` plugin pre-installed.
-    image: ghcr.io/miracum/util-images/trino:v0.1.3@sha256:ecae8ef137895e793bd1c26fc20ac80815723eb0d1f7b4f8a90bac8677fbc44f
+    image: ghcr.io/miracum/util-images/trino:v0.1.2@sha256:0aa482ed41a593e076604564811fe7463a0c47e46c65feabec9d98fb56d404ca
     ipc: none
     security_opt:
       - "no-new-privileges:true"
