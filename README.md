@@ -1,4 +1,4 @@
-# mie2025-paper-e2e-data-quality
+# 2025-paper-e2e-data-quality
 
 ## Prerequisites
 
